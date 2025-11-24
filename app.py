@@ -1,32 +1,11 @@
 # app.py - Advanced SAS Map Streamlit app
-# Requirements: see requirements.txt below
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-
-# Try to import RDKit with error handling
-try:
-    from rdkit import Chem
-    from rdkit.Chem import AllChem, DataStructs
-    RDKIT_AVAILABLE = True
-except ImportError as e:
-    st.error(f"RDKit import error: {e}")
-    st.info("""
-    **Troubleshooting steps:**
-    1. Install RDKit with: `pip install rdkit-pypi`
-    2. If NumPy compatibility issues occur, try: `pip install "numpy<2"`
-    3. On Linux, you may need: `sudo apt-get install libxrender1`
-    """)
-    RDKIT_AVAILABLE = False
-
-try:
-    from rdkit.Chem.Draw import MolToImage
-    DRAWLIB_AVAILABLE = True
-except ImportError as e:
-    st.warning(f"RDKit drawing unavailable: {e}")
-    DRAWLIB_AVAILABLE = False
-
+from rdkit import Chem
+from rdkit.Chem import AllChem, DataStructs
+from rdkit.Chem.Draw import MolToImage
 from sklearn.neighbors import KernelDensity
 import plotly.express as px
 import os
@@ -44,14 +23,6 @@ except Exception:
 
 st.set_page_config(page_title="Advanced SAS Map (SALI) — Streamlit", layout="wide")
 st.title("🧭 Advanced SAS Map Generator — SALI / Activity Cliffs")
-
-# Show warnings if dependencies missing
-if not RDKIT_AVAILABLE:
-    st.error("RDKit is not available. The app cannot function without it.")
-    st.stop()
-
-if not DRAWLIB_AVAILABLE:
-    st.warning("RDKit drawing functions are unavailable. Molecule images will not be displayed.")
 
 # ---------- Sidebar: Upload & Params ----------
 st.sidebar.header("Input & Parameters")
@@ -289,64 +260,52 @@ if st.button("🚀 Generate SAS map and analyze"):
         "SALI": float(sel_row["SALI"]),
     })
 
-    # Render molecule structures if drawing is available
-    if DRAWLIB_AVAILABLE:
-        def mol_to_svg(smiles, mol_size=(300,300)):
-            try:
-                m = Chem.MolFromSmiles(smiles)
-                if m is None:
-                    return "<p>Invalid SMILES</p>"
-                # kekulize for nicer drawing when possible
-                try:
-                    Chem.Kekulize(m, clearAromaticFlags=True)
-                except Exception:
-                    pass
-                from rdkit.Chem.Draw import rdMolDraw2D
-                drawer = rdMolDraw2D.MolDraw2DSVG(mol_size[0], mol_size[1])
-                opts = drawer.drawOptions()
-                opts.padding = 0.12
-                rdMolDraw2D.PrepareAndDrawMolecule(drawer, m)
-                drawer.FinishDrawing()
-                svg = drawer.GetDrawingText()
-                return svg
-            except Exception as e:
-                return f"<p>Error rendering: {str(e)}</p>"
+    # Render RDKit SVGs for both molecules side-by-side
+    def mol_to_svg(smiles, mol_size=(300,300)):
+        m = Chem.MolFromSmiles(smiles)
+        if m is None:
+            return "<p>Invalid SMILES</p>"
+        # kekulize for nicer drawing when possible
+        try:
+            Chem.Kekulize(m, clearAromaticFlags=True)
+        except Exception:
+            pass
+        from rdkit.Chem.Draw import rdMolDraw2D
+        drawer = rdMolDraw2D.MolDraw2DSVG(mol_size[0], mol_size[1])
+        opts = drawer.drawOptions()
+        opts.padding = 0.12
+        rdMolDraw2D.PrepareAndDrawMolecule(drawer, m)
+        drawer.FinishDrawing()
+        svg = drawer.GetDrawingText()
+        # Some RDKit versions prefix xml header; keep as-is
+        return svg
 
-        col1, col2, col3 = st.columns([3,3,2])
-        with col1:
-            st.markdown(f"**{sel_row['Mol1_ID']}**")
-            svg1 = mol_to_svg(sel_row["SMILES1"])
-            st.components.v1.html(svg1, height=320)
-            st.markdown(f"SMILES: `{sel_row['SMILES1']}`")
+    col1, col2, col3 = st.columns([3,3,2])
+    with col1:
+        st.markdown(f"**{sel_row['Mol1_ID']}**")
+        svg1 = mol_to_svg(sel_row["SMILES1"])
+        st.components.v1.html(svg1, height=320)
+        st.markdown(f"SMILES: `{sel_row['SMILES1']}`")
 
-        with col2:
-            st.markdown(f"**{sel_row['Mol2_ID']}**")
-            svg2 = mol_to_svg(sel_row["SMILES2"])
-            st.components.v1.html(svg2, height=320)
-            st.markdown(f"SMILES: `{sel_row['SMILES2']}`")
+    with col2:
+        st.markdown(f"**{sel_row['Mol2_ID']}**")
+        svg2 = mol_to_svg(sel_row["SMILES2"])
+        st.components.v1.html(svg2, height=320)
+        st.markdown(f"SMILES: `{sel_row['SMILES2']}`")
 
-        with col3:
-            st.markdown("**Actions**")
-            # Download pair CSV
-            pair_csv = pd.DataFrame([sel_row]).to_csv(index=False).encode("utf-8")
-            st.download_button("📥 Download pair CSV", data=pair_csv, file_name="selected_pair.csv", mime="text/csv")
-            
-            # Show Ketcher if available
-            if KETCHER_AVAILABLE:
-                st.markdown("Open structures in **Ketcher** (editable):")
-                st_ketcher(smiles=sel_row["SMILES1"], height=300, key=f"ketcher1_{sel_idx}")
-                st_ketcher(smiles=sel_row["SMILES2"], height=300, key=f"ketcher2_{sel_idx}")
-            else:
-                st.info("Ketcher not available. Install `streamlit-ketcher` to enable an embedded editor/viewer.")
-    else:
-        st.warning("Molecule rendering unavailable. Showing SMILES only:")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"**{sel_row['Mol1_ID']}**")
-            st.code(sel_row["SMILES1"])
-        with col2:
-            st.markdown(f"**{sel_row['Mol2_ID']}**")
-            st.code(sel_row["SMILES2"])
+    with col3:
+        st.markdown("**Actions**")
+        # Download pair CSV
+        pair_csv = pd.DataFrame([sel_row]).to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Download pair CSV", data=pair_csv, file_name="selected_pair.csv", mime="text/csv")
+        
+        # Show Ketcher if available
+        if KETCHER_AVAILABLE:
+            st.markdown("Open structures in **Ketcher** (editable):")
+            st_ketcher(smiles=sel_row["SMILES1"], height=300, key=f"ketcher1_{sel_idx}")
+            st_ketcher(smiles=sel_row["SMILES2"], height=300, key=f"ketcher2_{sel_idx}")
+        else:
+            st.info("Ketcher not available. Install `streamlit-ketcher` to enable an embedded editor/viewer.")
 
     # Full pairs download and top lists
     st.markdown("---")
