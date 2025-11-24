@@ -1,0 +1,8 @@
+streamlit>=1.18.0
+pandas
+numpy
+rdkit-pypi
+scikit-learn
+plotly
+pillow
+streamlit-ketcher  
