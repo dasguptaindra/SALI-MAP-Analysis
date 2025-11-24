@@ -1,5 +1,4 @@
 # app.py - Advanced SAS Map Streamlit app (Simplified)
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -16,17 +15,6 @@ st.title("🧭 Advanced SAS Map Generator — SALI / Activity Cliffs")
 # ---------- Sidebar: Upload & Params ----------
 st.sidebar.header("Input & Parameters")
 uploaded_file = st.sidebar.file_uploader("Upload CSV", type=["csv"])
-example_btn = st.sidebar.button("Load example (small sample)")
-
-if example_btn:
-    # Create a tiny example if user wants to test quickly
-    example = pd.DataFrame({
-        "SMILES": ["CCO","CCN","CCCl","CCC(=O)O","c1ccccc1O","CC(=O)O","CC(C)O","CC(C)C(=O)O"],
-        "pIC50": [6.2, 5.9, 4.5, 7.2, 5.1, 6.8, 4.9, 7.6],
-        "ChEMBL ID": [f"CHEMBL{i}" for i in range(1,9)]
-    })
-    uploaded_file = BytesIO(example.to_csv(index=False).encode("utf-8"))
-    st.sidebar.success("Example loaded — go to main area and press Generate")
 
 # Fingerprint type selection
 fingerprint_type = st.sidebar.selectbox(
@@ -100,8 +88,7 @@ def compute_similarity_matrix(fps):
 
 # ---------- Main UI ----------
 if uploaded_file is None:
-    st.info("Upload a CSV file containing columns: SMILES and an activity (e.g. pIC50).")
-    st.info("Or click 'Load example' in the sidebar to test with sample data.")
+    st.info("📁 Upload a CSV file containing columns: SMILES and an activity (e.g. pIC50).")
     st.stop()
 
 # Read file
@@ -368,4 +355,3 @@ if st.button("🚀 Generate SAS map and analyze"):
         )
 
     st.success("🎉 Analysis complete! Use the download buttons above to save your results.")
-
