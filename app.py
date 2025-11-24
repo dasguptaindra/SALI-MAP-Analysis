@@ -4,9 +4,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from rdkit import Chem
-from rdkit.Chem import AllChem, DataStructs, MACCSkeys, Draw
-from rdkit.Chem.Draw import MolDraw2DCairo
-from sklearn.neighbors import KernelDensity
+from rdkit.Chem import AllChem, DataStructs, MACCSkeys
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -15,6 +13,21 @@ from io import BytesIO
 from PIL import Image
 import base64
 import textwrap
+
+# Handle RDKit drawing imports gracefully
+try:
+    from rdkit.Chem.Draw import rdMolDraw2D
+    from rdkit.Chem.Draw import MolDraw2DCairo
+    RDKIT_DRAW_AVAILABLE = True
+except ImportError:
+    try:
+        # Fallback to SVG renderer if Cairo is not available
+        from rdkit.Chem.Draw import MolDraw2DSVG
+        RDKIT_DRAW_AVAILABLE = True
+        st.warning("Cairo renderer not available, using SVG fallback for molecule images")
+    except ImportError:
+        RDKIT_DRAW_AVAILABLE = False
+        st.warning("RDKit drawing capabilities not available - molecule images disabled")
 
 # Try to import ketcher widget (optional)
 try:
@@ -74,16 +87,28 @@ st.sidebar.markdown("Developed by **Indrasis Das Gupta**")
 # ---------- Functions ----------
 def create_mol_image(smiles, size=(300, 200)):
     """Create molecule image from SMILES"""
+    if not RDKIT_DRAW_AVAILABLE:
+        return None
+        
     try:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             return None
-        drawer = MolDraw2DCairo(size[0], size[1])
+            
+        # Try Cairo first, then SVG fallback
+        try:
+            drawer = MolDraw2DCairo(size[0], size[1])
+        except (NameError, AttributeError):
+            try:
+                drawer = MolDraw2DSVG(size[0], size[1])
+            except (NameError, AttributeError):
+                return None
+                
         drawer.DrawMolecule(mol)
         drawer.FinishDrawing()
         png_data = drawer.GetDrawingText()
         return base64.b64encode(png_data).decode('utf-8')
-    except:
+    except Exception:
         return None
 
 def create_download_zip(files_dict):
@@ -289,6 +314,7 @@ if st.button("🚀 Generate SAS map and analyze"):
         st.write("Estimating 2D density (KDE)...")
         try:
             xy = np.vstack([pairs_df["Similarity"].values, pairs_df["Activity_Diff"].values]).T
+            from sklearn.neighbors import KernelDensity
             kde = KernelDensity(bandwidth=float(kde_bandwidth)).fit(xy)
             pairs_df["Density"] = np.exp(kde.score_samples(xy))
             st.success("Density estimated.")
@@ -416,31 +442,34 @@ if st.button("🚀 Generate SAS map and analyze"):
     with tab4:
         st.subheader("Molecule Structure Viewer")
         
-        # Select a molecule to view
-        mol_options = [f"{id_} - {smiles}" for id_, smiles in zip(ids, smiles_list)]
-        selected_mol = st.selectbox("Select a molecule to view:", mol_options[:100])  # Limit to first 100
-        
-        if selected_mol:
-            mol_idx = mol_options.index(selected_mol)
-            smiles = smiles_list[mol_idx]
-            mol_id = ids[mol_idx]
+        if not RDKIT_DRAW_AVAILABLE:
+            st.warning("Molecule structure viewing is not available in this environment. RDKit drawing capabilities are missing.")
+        else:
+            # Select a molecule to view
+            mol_options = [f"{id_} - {smiles}" for id_, smiles in zip(ids, smiles_list)]
+            selected_mol = st.selectbox("Select a molecule to view:", mol_options[:100])  # Limit to first 100
             
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.write(f"**Molecule:** {mol_id}")
-                st.write(f"**Activity:** {activities[mol_idx]:.3f}")
-                st.write(f"**SMILES:**")
-                st.code(smiles)
-            
-            with col2:
-                # Generate and display molecule image
-                img_data = create_mol_image(smiles, size=(400, 300))
-                if img_data:
-                    st.image(f"data:image/png;base64,{img_data}", 
-                           caption=f"Structure of {mol_id}", 
-                           use_column_width=True)
-                else:
-                    st.error("Could not generate structure image")
+            if selected_mol:
+                mol_idx = mol_options.index(selected_mol)
+                smiles = smiles_list[mol_idx]
+                mol_id = ids[mol_idx]
+                
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    st.write(f"**Molecule:** {mol_id}")
+                    st.write(f"**Activity:** {activities[mol_idx]:.3f}")
+                    st.write(f"**SMILES:**")
+                    st.code(smiles)
+                
+                with col2:
+                    # Generate and display molecule image
+                    img_data = create_mol_image(smiles, size=(400, 300))
+                    if img_data:
+                        st.image(f"data:image/png;base64,{img_data}", 
+                               caption=f"Structure of {mol_id}", 
+                               use_column_width=True)
+                    else:
+                        st.error("Could not generate structure image")
     
     # ---------- DOWNLOAD SECTION ----------
     st.markdown("---")
