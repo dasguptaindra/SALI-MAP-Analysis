@@ -34,12 +34,23 @@ if 'analysis_mode_state' not in st.session_state:
 @st.cache_data
 def compute_density(x, y):
     """Calculate point density using Gaussian KDE for visualization."""
-    xy = np.vstack([x, y])
+    # Remove NaN/infinite values
+    mask = ~(np.isnan(x) | np.isnan(y) | np.isinf(x) | np.isinf(y))
+    x_clean = x[mask]
+    y_clean = y[mask]
+    
+    if len(x_clean) < 2:
+        return np.zeros_like(x), np.arange(len(x))
+    
+    xy = np.vstack([x_clean, y_clean])
     try:
         z = gaussian_kde(xy)(xy)
-        idx = z.argsort() # Sort so densest points are plotted on top
-        return z, idx
-    except Exception:
+        # Create full array with NaN for filtered points
+        z_full = np.full_like(x, np.nan, dtype=float)
+        z_full[mask] = z
+        idx = np.argsort(z) if len(z) > 0 else np.arange(len(x))
+        return z_full, idx
+    except (np.linalg.LinAlgError, ValueError):
         return np.zeros_like(x), np.arange(len(x))
 
 @st.cache_data
@@ -49,7 +60,10 @@ def generate_molecular_descriptors(smiles_list, desc_type, radius_param, n_bits)
     valid_indices = []
     
     for idx, smiles in enumerate(smiles_list):
-        smiles_str = str(smiles)
+        smiles_str = str(smiles).strip()
+        if not smiles_str:
+            continue
+            
         mol = Chem.MolFromSmiles(smiles_str)
         
         if mol is None:
@@ -67,7 +81,7 @@ def generate_molecular_descriptors(smiles_list, desc_type, radius_param, n_bits)
             
             descriptors.append(desc)
             valid_indices.append(idx)
-        except:
+        except Exception as e:
             continue
     
     return descriptors, valid_indices
@@ -76,17 +90,26 @@ def generate_molecular_descriptors(smiles_list, desc_type, radius_param, n_bits)
 def compute_similarity_matrix(descriptors):
     """Compute full pairwise similarity matrix."""
     n_molecules = len(descriptors)
+    if n_molecules == 0:
+        return np.array([])
+        
     similarity_matrix = np.zeros((n_molecules, n_molecules), dtype=float)
     fps = list(descriptors)
     
     for i in range(n_molecules):
         similarity_matrix[i, i] = 1.0 
         if i < n_molecules - 1:
-            sims = DataStructs.BulkTanimotoSimilarity(fps[i], fps[i+1:])
-            for idx, sim in enumerate(sims):
-                j = i + 1 + idx
-                similarity_matrix[i, j] = sim
-                similarity_matrix[j, i] = sim
+            try:
+                sims = DataStructs.BulkTanimotoSimilarity(fps[i], fps[i+1:])
+                for idx, sim in enumerate(sims):
+                    j = i + 1 + idx
+                    similarity_matrix[i, j] = sim
+                    similarity_matrix[j, i] = sim
+            except Exception:
+                # If similarity calculation fails, set to 0
+                for j in range(i+1, n_molecules):
+                    similarity_matrix[i, j] = 0.0
+                    similarity_matrix[j, i] = 0.0
             
     return similarity_matrix
 
@@ -96,7 +119,17 @@ def process_landscape_data(
     desc_type, radius, bits, sim_thresh, act_thresh
 ):
     """Main processing pipeline with updated Zone Names."""
+    # Input validation
+    if df is None or df.empty:
+        return None, "DataFrame is empty"
+    
+    if smiles_col not in df.columns or act_col not in df.columns:
+        return None, "Required columns not found"
+    
     df_clean = df.dropna(subset=[smiles_col, act_col]).copy()
+    
+    if len(df_clean) == 0:
+        return None, "No valid data after cleaning"
     
     smiles_arr = df_clean[smiles_col].astype(str).values
     act_arr = df_clean[act_col].astype(float).values
@@ -112,7 +145,7 @@ def process_landscape_data(
     )
     
     if len(descriptors) < 2:
-        return None, "Not enough valid molecules."
+        return None, "Not enough valid molecules after descriptor generation."
 
     # Filter arrays
     act_arr = act_arr[valid_idx]
@@ -121,6 +154,9 @@ def process_landscape_data(
 
     # 2. Similarity Matrix
     sim_matrix = compute_similarity_matrix(descriptors)
+    
+    if sim_matrix.size == 0:
+        return None, "Failed to compute similarity matrix"
 
     # 3. Generate Pairs
     pairs = []
@@ -143,10 +179,15 @@ def process_landscape_data(
             else:
                 zone = 'Nondescriptive Zone'  # Previously 'Baseline Regions'
 
-            sali = act_diff / max(1.0 - sim, min_dist)
+            # Calculate SALI with safe division
+            denominator = max(1.0 - sim, min_dist)
+            sali = act_diff / denominator
 
             pairs.append({
-                "Mol1_ID": ids_arr[i], "Mol2_ID": ids_arr[j],
+                "Mol1_ID": ids_arr[i], 
+                "Mol2_ID": ids_arr[j],
+                "Mol1_Activity": act_arr[i],
+                "Mol2_Activity": act_arr[j],
                 "Similarity": sim, 
                 "Activity_Diff": act_diff,
                 "Max. Activity": max(act_arr[i], act_arr[j]),
@@ -154,14 +195,24 @@ def process_landscape_data(
                 "Zone": zone
             })
 
+    if not pairs:
+        return None, "No valid molecular pairs generated"
+        
     pairs_df = pd.DataFrame(pairs)
     
     # 4. Calculate Density
     if not pairs_df.empty and len(pairs_df) > 5:
         try:
-            density, _ = compute_density(pairs_df["Similarity"], pairs_df["Activity_Diff"])
-            pairs_df["Density"] = density
-        except:
+            # Ensure we have valid numeric data for density calculation
+            valid_sim = pairs_df["Similarity"].replace([np.inf, -np.inf], np.nan).dropna()
+            valid_act = pairs_df["Activity_Diff"].replace([np.inf, -np.inf], np.nan).dropna()
+            
+            if len(valid_sim) > 1 and len(valid_act) > 1:
+                density, _ = compute_density(pairs_df["Similarity"], pairs_df["Activity_Diff"])
+                pairs_df["Density"] = density
+            else:
+                pairs_df["Density"] = 0.0
+        except Exception:
             pairs_df["Density"] = 0.0
     else:
         pairs_df["Density"] = 0.0
@@ -190,6 +241,8 @@ analysis_mode = st.sidebar.radio(
 radius_param = 2
 bit_size = 1024
 mol_rep = "ECFP4"
+sim_cutoff = 0.7
+act_cutoff = 1.0
 
 if analysis_mode == "Basic Landscape":
     st.sidebar.info("Basic visual check.")
@@ -215,7 +268,7 @@ else:  # SAS Map Plot Mode
     # Color Mapping options
     viz_color_col = st.sidebar.selectbox(
         "Color Mapping", 
-        ["SALI", "Max. Activity", "Density"]
+        ["SALI", "Max. Activity", "Density", "Zone"]
     )
     
     cmap_name = st.sidebar.selectbox(
@@ -235,36 +288,46 @@ else:  # SAS Map Plot Mode
 st.subheader("Dataset Input")
 uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
 
-if uploaded_file:
+if uploaded_file is not None:
     try:
         df_input = pd.read_csv(uploaded_file)
-    except:
-        df_input = pd.read_csv(uploaded_file, sep=';')
+    except Exception as e:
+        try:
+            df_input = pd.read_csv(uploaded_file, sep=';')
+        except Exception as e:
+            st.error(f"Error reading file: {str(e)}")
+            st.stop()
     
-    if not df_input.empty:
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            id_col = st.selectbox("ID Column", ["None"] + list(df_input.columns))
-        with col2:
-            smiles_col = st.selectbox("SMILES Column", df_input.columns)
-        with col3:
-            act_col = st.selectbox("Activity Column", df_input.columns)
+    if df_input.empty:
+        st.warning("Uploaded file is empty")
+        st.stop()
+        
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        id_col = st.selectbox("ID Column", ["None"] + list(df_input.columns))
+    with col2:
+        smiles_col = st.selectbox("SMILES Column", df_input.columns)
+    with col3:
+        act_col = st.selectbox("Activity Column", df_input.columns)
 
-        # RUN ANALYSIS
-        if st.button(f"🚀 Generate {analysis_mode}"):
-            st.session_state['analysis_results'] = None # Clear old
+    # RUN ANALYSIS
+    if st.button(f"🚀 Generate {analysis_mode}"):
+        st.session_state['analysis_results'] = None  # Clear old results
+        
+        with st.spinner("Calculating molecular descriptors and similarities..."):
+            results, error_msg = process_landscape_data(
+                df_input, smiles_col, act_col, id_col,
+                mol_rep, radius_param, bit_size, sim_cutoff, act_cutoff
+            )
             
-            with st.spinner("Calculating..."):
-                results, error_msg = process_landscape_data(
-                    df_input, smiles_col, act_col, id_col,
-                    mol_rep, radius_param, bit_size, sim_cutoff, act_cutoff
-                )
-                
-                if error_msg:
-                    st.error(error_msg)
-                else:
-                    st.session_state['analysis_results'] = results
-                    st.session_state['analysis_mode_state'] = analysis_mode
+            if error_msg:
+                st.error(f"Analysis failed: {error_msg}")
+            elif results is None:
+                st.error("No results generated from analysis")
+            else:
+                st.session_state['analysis_results'] = results
+                st.session_state['analysis_mode_state'] = analysis_mode
+                st.success(f"Analysis complete! Generated {len(results)} molecular pairs.")
 
     # DISPLAY RESULTS
     if st.session_state['analysis_results'] is not None:
@@ -287,20 +350,34 @@ if uploaded_file:
             # Plotting
             if len(results_df) > max_viz_pairs:
                 plot_df = results_df.sample(n=max_viz_pairs, random_state=42)
+                st.info(f"Displaying {max_viz_pairs} random pairs from {len(results_df)} total pairs")
             else:
                 plot_df = results_df
 
-            fig = px.scatter(
-                plot_df,
-                x="Similarity",
-                y="Activity_Diff",
-                color=viz_color_col, 
-                color_continuous_scale=cmap_name,
-                title=f"SAS Map: Colored by {viz_color_col}",
-                hover_data=["Mol1_ID", "Mol2_ID", "SALI", "Zone"],
-                opacity=0.7,
-                render_mode='webgl'
-            )
+            # Handle categorical vs continuous color mapping
+            if viz_color_col == "Zone":
+                fig = px.scatter(
+                    plot_df,
+                    x="Similarity",
+                    y="Activity_Diff",
+                    color="Zone",
+                    title="SAS Map: Colored by Zone",
+                    hover_data=["Mol1_ID", "Mol2_ID", "SALI", "Zone"],
+                    opacity=0.7,
+                    render_mode='webgl'
+                )
+            else:
+                fig = px.scatter(
+                    plot_df,
+                    x="Similarity",
+                    y="Activity_Diff",
+                    color=viz_color_col, 
+                    color_continuous_scale=cmap_name,
+                    title=f"SAS Map: Colored by {viz_color_col}",
+                    hover_data=["Mol1_ID", "Mol2_ID", "SALI", "Zone"],
+                    opacity=0.7,
+                    render_mode='webgl'
+                )
             
             fig.add_vline(x=sim_cutoff, line_dash="dash", line_color="gray")
             fig.add_hline(y=act_cutoff, line_dash="dash", line_color="gray")
@@ -314,7 +391,8 @@ if uploaded_file:
                 title_font=dict(family="Times New Roman", size=24),
                 xaxis=dict(
                     title_font=dict(family="Times New Roman", size=20),
-                    tickfont=dict(family="Times New Roman", size=16)
+                    tickfont=dict(family="Times New Roman", size=16),
+                    range=[0, 1]  # Fixed range for similarity
                 ),
                 yaxis=dict(
                     title_font=dict(family="Times New Roman", size=20),
@@ -337,7 +415,7 @@ if uploaded_file:
             with d2:
                 st.download_button("Download Plot (HTML)", html_bytes, "sas_map_plot.html", "text/html")
                 
-        else: # Basic Mode
+        else:  # Basic Mode
             st.subheader("Basic Landscape Plot")
             
             # MATPLOTLIB FONT CONFIGURATION
@@ -360,21 +438,23 @@ if uploaded_file:
             for zone, color in colors.items():
                 subset = results_df[results_df['Zone'] == zone]
                 if not subset.empty:
-                    ax.scatter(subset['Similarity'], subset['Activity_Diff'], c=color, label=zone, alpha=0.6)
+                    ax.scatter(subset['Similarity'], subset['Activity_Diff'], 
+                              c=color, label=zone, alpha=0.6, s=30)
             
-            ax.axvline(sim_cutoff, c='k', ls='--')
-            ax.axhline(act_cutoff, c='k', ls='--')
+            ax.axvline(sim_cutoff, c='k', ls='--', alpha=0.7, label=f'Sim threshold ({sim_cutoff})')
+            ax.axhline(act_cutoff, c='k', ls='--', alpha=0.7, label=f'Act threshold ({act_cutoff})')
             ax.set_xlabel("Similarity")
-            ax.set_ylabel("Activity Diff")
+            ax.set_ylabel("Activity Difference")
+            ax.set_xlim(0, 1)
             
             # Set legend font
-            plt.legend(prop={'family': 'Times New Roman', 'size': 12})
+            ax.legend(prop={'family': 'Times New Roman', 'size': 12})
+            ax.grid(True, alpha=0.3)
             
             st.pyplot(fig)
             
             csv_data = results_df.to_csv(index=False).encode('utf-8')
             st.download_button("Download CSV", csv_data, "basic_results.csv", "text/csv")
 
-
-
-
+else:
+    st.info("👆 Please upload a CSV file to begin analysis")
