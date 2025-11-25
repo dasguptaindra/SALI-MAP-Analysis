@@ -343,7 +343,7 @@ if uploaded_file is not None:
             st.info("MACCS uses fixed 166 bits.")
 
     with c_set2:
-        sim_cutoff = st.slider("Similarity Threshold", 0.0, 1.0, 0.65, 0.05)
+        sim_cutoff = st.slider("Similarity Threshold", 0.0, 1.0, 0.7, 0.05)
         act_cutoff = st.slider("Activity Diff Threshold", 0.0, 5.0, 1.0, 0.1)
 
     # Run Button
@@ -555,5 +555,6 @@ st.markdown(
     "</div>",
     unsafe_allow_html=True
 )
+
 
 
