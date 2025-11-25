@@ -10,7 +10,7 @@
 ### Core Analysis
 - **Molecular Fingerprinting**: Support for different fingerprint based descriptors (ECFPs, FCFPs, and MACCS keys)
 - **Similarity Calculation**: pairwise Tanimoto similarity computation 
-- **Activity Landscape Visualization**: Interactive Structure-Activity Similarity (SAS) maps
+- **Activity Landscape Visualization**: Structure-Activity Similarity (SAS) maps
 - **Zone Classification**: Automatic identification of four key SAR regions
 
 ### SAR Zones Identified
