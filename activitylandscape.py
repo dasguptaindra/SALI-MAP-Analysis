@@ -624,7 +624,7 @@ with footer_col1:
 with footer_col2:
     st.markdown(
         "<div style='text-align: center; color: gray; font-size: 14px;'>"
-        "Developed by Indrasis Das Gupta"
+        "Developed by Indrasis Dasgupta"
         "</div>",
         unsafe_allow_html=True
     )
@@ -638,4 +638,5 @@ with footer_col3:
         "</div>",
         unsafe_allow_html=True
     )
+
 
