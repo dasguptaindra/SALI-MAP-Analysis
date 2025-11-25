@@ -611,10 +611,11 @@ with info_section:
     st.write('''
              #### Technical Support 
              For technical issues or suggestions, please create an issue on our 
-             [project repository](https://github.com/exampleuser/molecular-landscape-explorer).
+             [project repository](https://github.com/dasguptaindra/SALI-MAP-Analysis).
 
              #### Scientific Context
              Molecular landscape analysis helps identify critical structure-activity 
              relationships in compound datasets, supporting drug discovery and 
              chemical optimization efforts.
              ''')
+
