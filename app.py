@@ -541,15 +541,6 @@ else:
     - **SMILES Column**: Molecular structures in SMILES format
     - **Activity Column**: Numeric activity values (pIC50, IC50, etc.)
     - **ID Column (optional)**: Molecule identifiers
-    
-    ### Example dataset:
-    ```csv
-    molecule_id,smiles,activity
-    MOL001,CCCO,6.5
-    MOL002,CCCN,7.2
-    MOL003,CCCCCO,5.8
-    ```
-    
     Upload a CSV file to get started!
     """)
 
@@ -564,4 +555,5 @@ st.markdown(
     "</div>",
     unsafe_allow_html=True
 )
+
 
