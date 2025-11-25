@@ -38,7 +38,7 @@ def compute_density(x, y):
     y_clean = y[mask]
     
     if len(x_clean) < 2:
-        return np.zeros_like(x), np.arange(len(x))
+        return np.zeros_like(x)
     
     xy = np.vstack([x_clean, y_clean])
     try:
@@ -46,10 +46,9 @@ def compute_density(x, y):
         # Create full array with NaN for filtered points
         z_full = np.full_like(x, np.nan, dtype=float)
         z_full[mask] = z
-        idx = np.argsort(z) if len(z) > 0 else np.arange(len(x))
-        return z_full, idx
+        return z_full
     except (np.linalg.LinAlgError, ValueError):
-        return np.zeros_like(x), np.arange(len(x))
+        return np.zeros_like(x)
 
 @st.cache_data
 def generate_molecular_descriptors(smiles_list, desc_type, radius_param, n_bits):
@@ -126,18 +125,14 @@ def compute_similarity_matrix(descriptors):
     
     for i in range(n_molecules):
         similarity_matrix[i, i] = 1.0 
-        if i < n_molecules - 1:
+        for j in range(i + 1, n_molecules):
             try:
-                sims = DataStructs.BulkTanimotoSimilarity(fps[i], fps[i+1:])
-                for idx, sim in enumerate(sims):
-                    j = i + 1 + idx
-                    similarity_matrix[i, j] = sim
-                    similarity_matrix[j, i] = sim
+                sim = DataStructs.TanimotoSimilarity(fps[i], fps[j])
+                similarity_matrix[i, j] = sim
+                similarity_matrix[j, i] = sim
             except Exception:
-                # If similarity calculation fails, set to 0
-                for j in range(i+1, n_molecules):
-                    similarity_matrix[i, j] = 0.0
-                    similarity_matrix[j, i] = 0.0
+                similarity_matrix[i, j] = 0.0
+                similarity_matrix[j, i] = 0.0
             
     return similarity_matrix
 
@@ -178,6 +173,7 @@ def process_landscape_data(
     # Filter arrays
     act_arr = act_arr[valid_idx]
     ids_arr = ids_arr[valid_idx]
+    smiles_arr = smiles_arr[valid_idx]
     n_mols = len(descriptors)
 
     # 2. Similarity Matrix
@@ -196,7 +192,7 @@ def process_landscape_data(
             act_diff = abs(act_arr[i] - act_arr[j])
             
             # -------------------------------------------------------
-            # ZONE CLASSIFICATION LOGIC
+            # ZONE CLASSIFICATION LOGIC - FIXED
             # -------------------------------------------------------
             if sim >= sim_thresh and act_diff >= act_thresh:
                 zone = 'Activity Cliffs'
@@ -207,18 +203,20 @@ def process_landscape_data(
             else:
                 zone = 'Nondescriptive Zone'
 
-            # Calculate SALI with safe division
+            # Calculate SALI with safe division - FIXED
             denominator = max(1.0 - sim, min_dist)
             sali = act_diff / denominator
 
             pairs.append({
                 "Mol1_ID": ids_arr[i], 
                 "Mol2_ID": ids_arr[j],
+                "Mol1_SMILES": smiles_arr[i],
+                "Mol2_SMILES": smiles_arr[j],
                 "Mol1_Activity": act_arr[i],
                 "Mol2_Activity": act_arr[j],
                 "Similarity": sim, 
                 "Activity_Diff": act_diff,
-                "Max. Activity": max(act_arr[i], act_arr[j]),
+                "Max_Activity": max(act_arr[i], act_arr[j]),  # Fixed column name
                 "SALI": sali,
                 "Zone": zone
             })
@@ -228,7 +226,7 @@ def process_landscape_data(
         
     pairs_df = pd.DataFrame(pairs)
     
-    # 4. Calculate Density
+    # 4. Calculate Density - FIXED
     if not pairs_df.empty and len(pairs_df) > 5:
         try:
             # Ensure we have valid numeric data for density calculation
@@ -236,11 +234,11 @@ def process_landscape_data(
             valid_act = pairs_df["Activity_Diff"].replace([np.inf, -np.inf], np.nan).dropna()
             
             if len(valid_sim) > 1 and len(valid_act) > 1:
-                density, _ = compute_density(pairs_df["Similarity"], pairs_df["Activity_Diff"])
+                density = compute_density(pairs_df["Similarity"].values, pairs_df["Activity_Diff"].values)
                 pairs_df["Density"] = density
             else:
                 pairs_df["Density"] = 0.0
-        except Exception:
+        except Exception as e:
             pairs_df["Density"] = 0.0
     else:
         pairs_df["Density"] = 0.0
@@ -335,7 +333,7 @@ st.sidebar.markdown("### Visualization Settings")
 # Color Mapping options
 viz_color_col = st.sidebar.selectbox(
     "Color Mapping", 
-    ["Zone", "SALI", "Max. Activity", "Density"]
+    ["Zone", "SALI", "Max_Activity", "Density"]  # Fixed column names
 )
 
 cmap_name = st.sidebar.selectbox(
@@ -350,6 +348,12 @@ max_viz_pairs = st.sidebar.number_input("Max pairs to plot", 2000, 100000, 10000
 st.sidebar.markdown("### Landscape Thresholds")
 sim_cutoff = st.sidebar.slider("Similarity Cutoff", 0.1, 0.9, 0.7, 0.05)
 act_cutoff = st.sidebar.slider("Activity Cutoff", 0.5, 4.0, 1.0, 0.1)
+
+# Clear cache button to force recalculation when fingerprints change
+if st.sidebar.button("Clear Cache & Refresh"):
+    st.cache_data.clear()
+    st.session_state['analysis_results'] = None
+    st.rerun()
 
 # --- DATA INPUT ---
 st.subheader("Dataset Input")
@@ -415,6 +419,9 @@ if uploaded_file is not None:
             st.error(f"• {error}")
         st.stop()
 
+    # Display current fingerprint settings
+    st.info(f"**Current Settings:** {mol_rep} | Radius: {radius_param} | Bits: {bit_size} | Similarity Cutoff: {sim_cutoff} | Activity Cutoff: {act_cutoff}")
+
     # RUN ANALYSIS
     if st.button("🚀 Generate SAS Map Plot"):
         st.session_state['analysis_results'] = None  # Clear old results
@@ -440,13 +447,13 @@ if uploaded_file is not None:
         st.markdown("---")
         st.header("📊 SAS Map Plot Results")
         
-        # Stats with Zone Names
+        # Stats with Zone Names - FIXED
         rc = results_df['Zone'].value_counts()
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Activity Cliffs", int(rc.get("Activity Cliffs", 0)))
         c2.metric("Smooth SAR", int(rc.get("Smooth SAR", 0)))
         c3.metric("Similarity Cliffs", int(rc.get("Similarity Cliffs", 0)))
-        c4.metric("Nondescriptive", int(rc.get("Nondescriptive Zone", 0)))
+        c4.metric("Nondescriptive Zone", int(rc.get("Nondescriptive Zone", 0)))
         
         # Plotting
         if len(results_df) > max_viz_pairs:
@@ -460,10 +467,10 @@ if uploaded_file is not None:
             'Activity Cliffs': 'red',
             'Smooth SAR': 'green', 
             'Similarity Cliffs': 'blue',
-            'Nondescriptive Zone': 'orange'  # Fixed spelling to match actual zone name
+            'Nondescriptive Zone': 'orange'
         }
 
-        # Handle categorical vs continuous color mapping
+        # Handle categorical vs continuous color mapping - FIXED
         if viz_color_col == "Zone":
             fig = px.scatter(
                 plot_df,
@@ -478,17 +485,35 @@ if uploaded_file is not None:
                 category_orders={"Zone": ["Activity Cliffs", "Smooth SAR", "Similarity Cliffs", "Nondescriptive Zone"]}
             )
         else:
-            fig = px.scatter(
-                plot_df,
-                x="Similarity",
-                y="Activity_Diff",
-                color=viz_color_col, 
-                color_continuous_scale=cmap_name,
-                title=f"SAS Map: Colored by {viz_color_col} ({mol_rep})",
-                hover_data=["Mol1_ID", "Mol2_ID", "SALI", "Zone"],
-                opacity=0.7,
-                render_mode='webgl'
-            )
+            # For continuous color scales, ensure data is valid
+            if viz_color_col in plot_df.columns:
+                # Remove infinite values for continuous color scales
+                plot_df_clean = plot_df.replace([np.inf, -np.inf], np.nan)
+                
+                fig = px.scatter(
+                    plot_df_clean,
+                    x="Similarity",
+                    y="Activity_Diff",
+                    color=viz_color_col, 
+                    color_continuous_scale=cmap_name,
+                    title=f"SAS Map: Colored by {viz_color_col} ({mol_rep})",
+                    hover_data=["Mol1_ID", "Mol2_ID", "SALI", "Zone"],
+                    opacity=0.7,
+                    render_mode='webgl'
+                )
+            else:
+                st.error(f"Column '{viz_color_col}' not found in results")
+                fig = px.scatter(
+                    plot_df,
+                    x="Similarity",
+                    y="Activity_Diff",
+                    color="Zone",
+                    color_discrete_map=zone_colors,
+                    title=f"SAS Map: Colored by Zone ({mol_rep})",
+                    hover_data=["Mol1_ID", "Mol2_ID", "SALI", "Zone"],
+                    opacity=0.7,
+                    render_mode='webgl'
+                )
         
         fig.add_vline(x=sim_cutoff, line_dash="dash", line_color="gray")
         fig.add_hline(y=act_cutoff, line_dash="dash", line_color="gray")
@@ -516,6 +541,18 @@ if uploaded_file is not None:
         )
         
         st.plotly_chart(fig, use_container_width=True)
+        
+        # Show data summary
+        st.subheader("Data Summary")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Zone Distribution:**")
+            st.dataframe(results_df['Zone'].value_counts().reset_index().rename(columns={'index': 'Zone', 'Zone': 'Count'}))
+        
+        with col2:
+            st.write("**Statistical Summary:**")
+            st.dataframe(results_df[['Similarity', 'Activity_Diff', 'SALI', 'Max_Activity']].describe())
         
         # Downloads
         csv_data = results_df.to_csv(index=False).encode('utf-8')
