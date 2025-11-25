@@ -591,19 +591,6 @@ else:
     
     This application helps you analyze Structure-Activity Relationships (SAR) through Activity Landscape Modelling.
     
-    ### How to use:
-    1. **Upload a CSV file** containing molecular structures and activity data
-    2. **Map your columns**: SMILES, Activity values, and optional Molecule IDs
-    3. **Configure analysis**: Choose fingerprint type and thresholds
-    4. **Explore results**: Visualize SAS maps and analyze different SAR zones
-    
-    ### Expected CSV format:
-    - **SMILES Column**: Molecular structures in SMILES format
-    - **Activity Column**: Numeric activity values (pIC50, IC50, etc.)
-    - **ID Column (optional)**: Molecule identifiers
-    Upload a CSV file to get started!
-    """)
-
 # ==============================================================================
 # 8. FOOTER
 # ==============================================================================
@@ -638,6 +625,7 @@ with footer_col3:
         "</div>",
         unsafe_allow_html=True
     )
+
 
 
 
