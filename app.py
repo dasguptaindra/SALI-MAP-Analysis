@@ -69,12 +69,13 @@ if analysis_mode == "Basic Landscape":
     )
     similarity_cutoff = st.sidebar.selectbox(
         "Similarity Threshold", 
-        options=[0.7, 0.5, 0.6, 0.8, 0.9, 1.0]
+        options=[0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+        index=2  # Default to 0.7
     )
     activity_cutoff = st.sidebar.selectbox(
         "Activity Difference Threshold", 
-        options=[0.5, 1, 1.5, 2, 2.5, 3],
-        index=1
+        options=[1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
+        index=0  # Default to 1.0
     )
 else:  # Advanced SAR Analysis
     # Molecular representation selection
@@ -103,6 +104,14 @@ else:  # Advanced SAR Analysis
         "Color Mapping", 
         ["SALI", "MaxActivity", "Zone"]
     )
+    
+    # Add colormap selection option
+    colormap_option = st.sidebar.selectbox(
+        "Colormap (for SALI/MaxActivity)", 
+        ["viridis", "plasma", "inferno", "magma", "cividis", "rainbow", "jet", "turbo", "coolwarm", "RdYlBu"],
+        index=0
+    )
+    
     max_visualization_pairs = st.sidebar.number_input(
         "Maximum pairs for visualization", 
         min_value=2000, max_value=200000, 
@@ -111,10 +120,10 @@ else:  # Advanced SAR Analysis
 
     # Landscape classification parameters
     similarity_cutoff = st.sidebar.slider(
-        "Similarity threshold", 0.1, 0.9, 0.5, 0.05
+        "Similarity threshold", 0.1, 0.9, 0.7, 0.05  # Changed default to 0.7
     )
     activity_cutoff = st.sidebar.slider(
-        "Activity threshold", 0.1, 5.0, 1.0, 0.1
+        "Activity threshold", 1.0, 5.0, 1.0, 0.1  # Changed range to 1-5 with default 1
     )
 
 # Core computational functions
@@ -185,10 +194,12 @@ def create_landscape_visualization(results_df):
     ax.axvline(similarity_cutoff, linestyle='dotted', color='black')
     ax.axhline(activity_cutoff, linestyle='dotted', color='black')
 
-    ax.set_xlabel('Structural Similarity')
-    ax.set_ylabel('Activity Difference')
+    # Set axis labels with increased size and bold font
+    ax.set_xlabel('Structural Similarity', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Activity Difference', fontsize=14, fontweight='bold')
+    
     fp_name = {2: 'ECFP4', 3: 'ECFP6', 4: 'ECFP8', 5: 'ECFP10'}[radius_param]
-    ax.set_title(f'Molecular Landscape Map (Representation: {fp_name})')
+    ax.set_title(f'Molecular Landscape Map (Representation: {fp_name})', fontsize=14, fontweight='bold')
     ax.legend(loc='best')
     ax.grid(False)
 
@@ -309,9 +320,11 @@ def create_enhanced_visualization(plot_data, sim_threshold, act_threshold):
     ax.axhline(y=act_threshold, color='blue', linestyle='--', alpha=0.8, 
                label=f'Activity threshold = {act_threshold}')
     
-    plt.title("Molecular Landscape Analysis", fontsize=15)
-    plt.xlabel("Structural Similarity")
-    plt.ylabel("Activity Difference")
+    # Enhanced axis labels - larger and bold
+    plt.xlabel("Structural Similarity", fontsize=16, fontweight='bold')
+    plt.ylabel("Activity Difference", fontsize=16, fontweight='bold')
+    plt.title("Molecular Landscape Analysis", fontsize=16, fontweight='bold')
+    
     plt.legend(title="SAR Region")
     plt.grid(True)
     
@@ -321,7 +334,7 @@ def create_enhanced_visualization(plot_data, sim_threshold, act_threshold):
 def perform_advanced_analysis(
     df, smiles_column, activity_column, id_column, 
     desc_type, radius_param, n_bits, sim_threshold, 
-    act_threshold, color_scheme, max_pairs
+    act_threshold, color_scheme, max_pairs, colormap
 ):
     """Perform advanced molecular landscape analysis"""
     
@@ -484,7 +497,7 @@ if uploaded_data:
                         )
 
                         landscape_results = analyze_molecular_pairs(
-                            analysis_data, radius_param, 
+                            analysis_data, radius, 
                             similarity_cutoff, activity_cutoff
                         )
 
@@ -522,7 +535,7 @@ if uploaded_data:
                             input_data, smiles_column, activity_column, id_column, 
                             molecular_representation, radius_param, bit_size,
                             similarity_cutoff, activity_cutoff, 
-                            visualization_color, max_visualization_pairs
+                            visualization_color, max_visualization_pairs, colormap_option
                         )
                         
                         if classified_results is not None:
@@ -611,22 +624,50 @@ if uploaded_data:
                                         n=max_visualization_pairs, random_state=42
                                     )
 
-                                # Create interactive plot
-                                interactive_fig = px.scatter(
-                                    interactive_data,
-                                    x="Similarity",
-                                    y="Activity_Diff",
-                                    color=visualization_color,
-                                    opacity=0.7,
-                                    hover_data=[
-                                        "Mol1_ID", "Mol2_ID", "Similarity", 
-                                        "Activity_Diff", "SALI", "Zone"
-                                    ],
-                                    title=f"Interactive Molecular Landscape ({molecular_representation})",
-                                    width=1000,
-                                    height=650,
-                                )
+                                # Create interactive plot with custom colormap for SALI/MaxActivity
+                                if visualization_color in ["SALI", "MaxActivity"]:
+                                    interactive_fig = px.scatter(
+                                        interactive_data,
+                                        x="Similarity",
+                                        y="Activity_Diff",
+                                        color=visualization_color,
+                                        color_continuous_scale=colormap_option,  # Use selected colormap
+                                        opacity=0.7,
+                                        hover_data=[
+                                            "Mol1_ID", "Mol2_ID", "Similarity", 
+                                            "Activity_Diff", "SALI", "Zone"
+                                        ],
+                                        title=f"Interactive Molecular Landscape ({molecular_representation})",
+                                        width=1000,
+                                        height=650,
+                                    )
+                                else:
+                                    interactive_fig = px.scatter(
+                                        interactive_data,
+                                        x="Similarity",
+                                        y="Activity_Diff",
+                                        color=visualization_color,
+                                        opacity=0.7,
+                                        hover_data=[
+                                            "Mol1_ID", "Mol2_ID", "Similarity", 
+                                            "Activity_Diff", "SALI", "Zone"
+                                        ],
+                                        title=f"Interactive Molecular Landscape ({molecular_representation})",
+                                        width=1000,
+                                        height=650,
+                                    )
+                                
                                 interactive_fig.update_traces(marker=dict(size=8))
+                                
+                                # Update axis labels - larger and bold
+                                interactive_fig.update_xaxes(
+                                    title_text="Structural Similarity",
+                                    title_font=dict(size=16, family="Arial Black")
+                                )
+                                interactive_fig.update_yaxes(
+                                    title_text="Activity Difference",
+                                    title_font=dict(size=16, family="Arial Black")
+                                )
                                 
                                 # Add threshold guides
                                 interactive_fig.add_vline(
