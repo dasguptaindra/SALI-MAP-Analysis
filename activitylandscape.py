@@ -589,7 +589,7 @@ else:
     st.markdown("""
     ## Welcome to the Activity Landscape Explorer!
     
-    This application helps you analyze Structure-Activity Relationships (SAR) through Activity Landscape Modeling.
+    This application helps you analyze Structure-Activity Relationships (SAR) through Activity Landscape Modelling.
     
     ### How to use:
     1. **Upload a CSV file** containing molecular structures and activity data
@@ -638,6 +638,7 @@ with footer_col3:
         "</div>",
         unsafe_allow_html=True
     )
+
 
 
 
